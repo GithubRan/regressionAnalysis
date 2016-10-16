@@ -1,0 +1,455 @@
+---
+title: "sta206hw7"
+author: "RanLiu"
+date: "November 18, 2015"
+output: word_document
+---
+
+# 2.Processing of the data
+
+## 2a.
+```{r}
+setwd("E:/RLiu_R/sta206")
+db = read.table("diabetes.txt", header = TRUE)
+options(width = 60)
+head(db)
+table(db$frame)
+db$frame[db$frame == ""] = NA
+db$frame = droplevels(db$frame)
+table(db$frame)
+```
+
+## 2b.
+```{r}
+names(db)
+drops = c("id", "bp.2s", "bp.2d")
+db = db[, !names(db) %in% drops]
+names(db)
+```
+
+## 2c.
+```{r}
+#The following variables are quantitative variables:
+(qt = names(db)[!sapply(db, is.factor)])
+#The following variables are qualitative variables:
+(ql = names(db)[sapply(db, is.factor)])
+#histogram for glyhb
+hist(db$glyhb)
+```
+
+The distribution of glyhb is severely right-skewed.
+
+Histogram for the other 12 quantitative variables:
+```{r}
+other.qt = names(db)[names(db) %in% qt & names(db)!= "glyhb"]
+par(mfrow = c(3,4), mar = c(2, 2, 2, 2))
+invisible(sapply(other.qt, function(x) hist(db[,names(db) == x], main = x)))
+```
+
+Pie charts for qualitative variables:
+```{r}
+par(mfrow = c(1,3), mar = c(2, 2, 2, 2))
+invisible(sapply(ql, function(x) pie(table(db[,names(db) == x]),main = x)))
+```
+
+## 2d.
+```{r}
+gl = db$glyhb
+tgl = data.frame("log.glyhb" = log(gl), "sqrt.glyhb" = sqrt(gl) , "revert.glyhb" = 1/gl)
+par(mfrow = c(2,2))
+invisible(sapply(c(1:3), function(x) hist(tgl[,x], xlab = names(tgl)[x], main = paste0("histogram of ", names(tgl)[x]))))
+```
+
+None of the three looks normal like to me... the log and squareroot are still right-skewed and the reverted is left-skewed. If I have to choose one, then maybe reverted glyhb is the most Normal-like one, among the three.
+
+## 2e.
+```{r}
+db$glyhb.star = (1/(db$glyhb))
+db = db[, !names(db) == "glyhb"]
+```
+
+## 2f.
+```{r}
+index.na=apply(is.na(db), 1, any)
+## identify cases with missing value.
+db.s=db[index.na == FALSE,] ##drop cases with missing value.
+any(is.na(db.s)) ## this should return FALSE -- no NA in db.s
+dim(db.s) ##this should return 366 16: 366 cases, 16 variables.
+table(db.s$frame) ## this should show three classes.
+```
+
+## 2g.
+```{r}
+par(mfrow = c(1,1), mar = c(0,0,0,0))
+plot(db.s[,names(db.s) %in% qt], pch = ".")
+correlation = cor(db.s[,names(db.s) %in% qt])
+round(correlation, 2)
+```
+
+Nonlinearity is not observed from scattered plot.
+
+## 2h.
+```{r}
+par(mar = c(2, 2, 2, 2))
+boxplot(db$glyhb.star ~ db$gender, col = c("pink", "blue"), main = "glyhb vs gender")
+boxplot(db$glyhb.star ~ db$frame, col = c("red", "orange", "yellow"), main = "glyhb vs frame")
+
+```
+
+## 2i.
+```{r}
+set.seed(206) ## set seed for random number generator
+##so everyone gets the same split of the data.
+n.s=nrow(db.s) ## number of cases in db.s (366)
+index.s=sample(1: n.s, size=n.s/2, replace=FALSE)
+## randomly sample 183 cases to form the training data.
+db.t=db.s[index.s,] ## get the training data set.
+## the remaining 183 cases form the validation set.
+db.v=db.s[-index.s,]
+```
+
+## 2j.
+```{r}
+compare = function(varname){
+  boxplot(db.t[, varname], db.v[, varname], main = varname, names = c("train", "valid"), col = c("green", "orange"))
+}
+vars = c("glyhb.star", "stab.glu", "ratio", "age", "bp.1s", "waist")
+par(mfrow = c(1,2))
+invisible(lapply(vars, compare))
+par(mfrow = c(1,1))
+```
+
+Yes,  these variables having similar distributions in these two sets.
+
+# 3.Selection of first-order effects
+
+## 3a.
+```{r}
+model1 = lm(glyhb.star ~ ., data = db)
+anova(model1)["Residuals", 3]
+library(MASS)
+boxcox(glyhb.star ~ ., data = db)
+```
+
+* There are 16 regression coefficients in this model. 
+* MSE is  0.001326992.
+* We can see the log-likelihood is largest when λ is around 1, which means no additional transformation is needed.
+
+## 3b.
+```{r}
+library(leaps)
+sub = regsubsets(x = glyhb.star ~ ., data = db, nbest = 1, nvmax = 16)
+sum_sub = summary(sub)
+p.m = as.integer(rownames(sum_sub$which))+1
+#number of coefficients in each model: p.m
+ssto = sum((db.t$glyhb.star-mean(db.t$glyhb.star))^2)
+sse = (1-sum_sub$rsq)*ssto
+n = nrow(db.t)
+aic = n*log(sse/n)+2*p.m
+bic = n*log(sse/n)+log(n)*p.m
+res_sub = data.frame(p.m, sse, rsq = sum_sub$rsq, adjr2 = sum_sub$adjr2, cp = sum_sub$cp, aic, bic, sum_sub$which)
+# index of best models under 'sse', 'aic', 'bic' criteria:
+index1 = apply(res_sub[, c('sse', 'aic', 'bic')], 2, which.min)
+# index of best models under 'rsq', 'adjr2' criteria:
+index2 = apply(res_sub[, c('rsq', 'adjr2')], 2, which.max)
+# best models under cp criteria:
+par(mar = c(4 ,4, 4, 4))
+plot(p.m, res_sub$cp, xlab="p", ylab="Cp", pch=19, main = "Best model under Cp criteria")
+abline(0,1,col="red")
+index3 = 5
+```
+
+The best model under Cp criteria should be one which has nearest cp value to p and a small cp. So p = 5, cp = 5.077535 is the best one.
+
+Now put them together to see which varibles each model includes.
+```{r}
+# put them together
+index = c(index1, index2, index3)
+best_models = sum_sub$which[index, ]
+rownames(best_models) = c('sse', 'aic', 'bic','rsq', 'adjr2','cp')
+(best_models = apply(best_models, 1, function(x) colnames(best_models)[x]))
+```
+ 
+## 3c.
+```{r}
+none_mod = lm(glyhb.star ~ 1, data=db.t)
+full_mod1 = lm(glyhb.star ~ ., data=db.t)
+modelfs1 = stepAIC(none_mod, scope=list(upper=full_mod1), direction="both", k=2)
+modelfs1$anova
+best_models$aic
+min(res_sub$aic)
+```
+
+The best model got in previous question includes stab.glu + ratio + age + waist + time.ppn" with AIC = -1200.249.
+
+The best model under forward step-wise method includes stab.glu + ratio + age + location with AIC = -1176.62.
+
+The best model under forward step-wise method is larger than that of the best model got in previous question. So forward step-wise probabaly gives a suboptimal model.
+
+## 3d.
+```{r, "residual vs. fitted value plot"}
+plot(lm(formula = glyhb.star ~ stab.glu + ratio + age + location, data = db.t), which = 1)
+```
+
+Yes, modelfs1 seems adequate. There seems to be a little bit residual variance inequinity though.
+
+# 4.Selection of first- and second- order effects
+## 4a.
+```{r}
+model2 = lm(glyhb.star ~ (.)^2, data = db.t)
+anova(model2)["Residuals", 3]
+```
+
++ There are 136 = 1 + 15 + 15*14/2 + 15 regression coefficients are there in this model.
++ MSE: 0.001252089
++ Yes, there are too many coefficients and only a few of them are significant, this can cause large model variance and lost of degree of freedom.
+
+## 4b.
+```{r, "forward step-wise on second order model", include = FALSE}
+none_mod = lm(glyhb.star ~ 1, data=db.t)
+full_mod2 = lm(glyhb.star ~ (.)^2, data=db.t)
+modelfs2 = stepAIC(none_mod, scope=list(upper=full_mod2), direction="both", k=2)
+```
+
+```{r}
+modelfs2$anova
+```
+AIC of modelfs2 = -1180.6. 
+AIC of modelfs1 = -1176.62.
+Best second order model under AIC criteria has smaller AIC than that of the first-order model. 
+This indicates that the seconde order model is better tham first order model in model complexity and goodness of fit.
+
+## 4c.
+```{r}
+plot(lm(formula = glyhb.star ~ stab.glu + ratio + age + location + 
+    stab.glu:age + stab.glu:location, data = db.t), which = 1)
+plot(lm(formula = glyhb.star ~ stab.glu + ratio + age + location + 
+    stab.glu:age + stab.glu:location, data = db.t), which = 2)
+```
+
+Seen from the residuals vs fitted values plot, there is no non-linear pattern and basically the residuals have zero mean and equal variance. So modelfs2 is quite aduquate.
+
+Seen from the QQ plot, the distribution of residuals is kind of heavy-tailed.
+
+## 4d.
+```{r, include = FALSE}
+none_mod = lm(glyhb.star ~ 1, data=db.t)
+full_mod = lm(glyhb.star ~ (.)^2, data=db.t)
+stepAIC(none_mod, scope=list(upper=full_mod), direction="forward", k=2)
+```
+
+To avoid pages of tables, only the last step is shown:
+```{r}
+# Step:  AIC=-1180.6
+# glyhb.star ~ stab.glu + ratio + age + location + stab.glu:age + 
+#     stab.glu:location
+
+#                  Df  Sum of Sq     RSS     AIC
+# <none>                         0.26757 -1180.6
+# + location:age    1 0.00254969 0.26502 -1180.3
+# + height          1 0.00147402 0.26609 -1179.6
+# + ratio:location  1 0.00088559 0.26668 -1179.2
+# + time.ppn        1 0.00085521 0.26671 -1179.2
+# + stab.glu:ratio  1 0.00068519 0.26688 -1179.1
+# + chol            1 0.00068489 0.26688 -1179.1
+# + bp.1s           1 0.00051954 0.26705 -1179.0
+# + ratio:age       1 0.00051431 0.26705 -1179.0
+# + hip             1 0.00042162 0.26714 -1178.9
+# + bp.1d           1 0.00034397 0.26722 -1178.8
+# + waist           1 0.00010658 0.26746 -1178.7
+# + gender          1 0.00005509 0.26751 -1178.6
+# + hdl             1 0.00001020 0.26755 -1178.6
+# + weight          1 0.00000221 0.26756 -1178.6
+# + frame           2 0.00179245 0.26577 -1177.8
+# 
+# Call:
+# lm(formula = glyhb.star ~ stab.glu + ratio + age + location + 
+#     stab.glu:age + stab.glu:location, data = db.t)
+```
+
+
+The selected model has formula:
+
+glyhb.star ~ stab.glu + ratio + age + location + stab.glu:age + stab.glu:location
+
+with AIC = -1180.6. It's the same as forward stepwise selection.
+
+# 5.Model validation
+
+## (a) Internal validation of Models fs1 and fs2
+
+* How many regression coefficients are there in Model 3 ? 11
+* What is MSE from Model 3? 0.001532671
+
+```{r}
+modelfs1
+model3 = lm(glyhb.star ~ (stab.glu + ratio + age + location)^2, data = db.t)
+length(model3$coefficient)
+(mse_model3 = anova(model3)["Residuals", 3])
+```
+
+* Calculate SSEp, MSEp, Cp and P ressp for Models fs1 and fs2 
+
+```{r}
+#Model fs1
+modelfs1 = lm(glyhb.star ~ stab.glu + ratio + age + location, data = db.t)
+sse_fs1 = sum((modelfs1$residuals)^2)
+mse_fs1 = anova(modelfs1)["Residuals", 3]
+p_fs1 = length(modelfs1$coefficients)
+n = nrow(db.t)
+cp_fs1 = sse_fs1/mse_model3 - (n - 2*p_fs1)
+hii = influence(modelfs1)$hat
+pressp_fs1 = sum((modelfs1$residuals)^2/(1-hii)^2)
+diag_fs1 = data.frame(p = p_fs1, sse = sse_fs1, mse = mse_fs1, cp = cp_fs1, pressp = pressp_fs1)
+
+#Model fs2
+modelfs2 = lm(formula = glyhb.star ~ stab.glu + ratio + age + location + stab.glu:age + stab.glu:location, data = db.t)
+sse_fs2 = sum((modelfs2$residuals)^2)
+mse_fs2 = anova(modelfs2)["Residuals", 3]
+p_fs2 = length(modelfs2$coefficients)
+n = nrow(db.t)
+cp_fs2 = sse_fs2/mse_model3 - (n - 2*p_fs2)
+hii = influence(modelfs2)$hat
+pressp_fs2 = sum((modelfs2$residuals)^2/(1-hii)^2)
+diag_fs2 = data.frame(p = p_fs2, sse = sse_fs2, mse = mse_fs2, cp = cp_fs2, pressp = pressp_fs2)
+
+data.frame(rbind(diag_fs1, diag_fs2), row.names = c("modelfs1", "modelfs2"))
+```
+
+* Model bias in modelfs1 is quite big, with p = 5 and cp = 9.356654. This may due to unbiased estimator mse of model3?
+* Model bida in modelfs2 is acceptable, with p = 7 and cp = 5.574726.
+* Overfitting is not a big concern because for both models, pressp are just resonably larger than see, indicating good predictive ability.
+
+
+## (b) External validation using the validation set
+
+* Compare the coefficients:
+
+```{r}
+#Model fs1
+modelfs1.v = lm(glyhb.star ~ stab.glu + ratio + age + location, data = db.v)
+data.frame(rbind(modelfs1$coefficients, modelfs1.v$coefficients), row.names = c("train", "validation"))
+
+#Model fs2
+modelfs2.v = lm(glyhb.star ~ stab.glu + ratio + age + location + stab.glu:age + 
+    stab.glu:location, data = db.v)
+data.frame(rbind(modelfs2$coefficients, modelfs2.v$coefficients), row.names = c("train", "validation"))
+```
+
++ For modelfs1, the coefficients from training data and validation data are consistent in sign and value. 
++ For modelfs2, other than location, all the coefficients from training data and validation data are consistent in sign and value. 
++ Yes, Models fs1 and fs2 have consistent estimates of intercept and ratio. For other coefficients, not that consistent.
+
+* MSPE
+
+Calculate the mean squared prediction
+error (MSPE) using the validation data for each of the two models. How do these
+MSP Ev compare with the respective P ressp/n and SSEp/n ()Note here n is the
+sample size of the training data, i.e., 183)? Which model among the two has a
+smaller MSPEv?
+
+```{r}
+#modelfs1
+newdata=db.v[,-16] # the 16th is response variable glyhb.star
+pred.fs1=predict.lm(modelfs1, newdata)
+mspe.fs1=mean((pred.fs1-db.v[,16])^2)
+mspe.fs1
+pressp_fs1/nrow(db.t)
+sse_fs1/nrow(db.t)
+#modelfs2
+newdata=db.v[,-16] # the 16th is response variable glyhb.star
+pred.fs2=predict.lm(modelfs2, newdata)
+mspe.fs2=mean((pred.fs2-db.v[,16])^2)
+mspe.fs2
+pressp_fs2/nrow(db.t)
+sse_fs2/nrow(db.t)
+```
+
++ MSEPv is supposed to be larger than sse/n. However in this case its a bit smaller than sse/n and pressp/n.
++ modelfs1 has smaller MSPEv.
+
+
+## (c)
+
+I choose modelfs1 as a final model as it has smaller MSPEv and has more degree of freedom.
+
+```{r}
+model.final = lm(glyhb.star ~ stab.glu + ratio + age + location, data = db.s)
+summary(model.final)
+anova(model.final)
+```
+
+# 6. Model diagnostic: Outlying and influential cases
+
+## (a)
+```{r}
+plot(model.final, which = 1)
+plot(model.final, which = 2)
+```
+
++ residual vs. fitted value plot shows no nonlinear pattern, indicating that the model is sufficient.
++ residual Q-Q plot indicate that the residuals are heavy-tailed distributed.
+
+## (b)
+ Obtain the studentized deleted residuals and identify any outlying Y observations.
+Use the Bonferroni outlier test procedure at ?? = 0.1.
+```{r}
+#studentized deleted residuals
+library(MASS)
+stu.res.del = studres(model.final)
+head(sort(abs(stu.res.del), decreasing=TRUE))
+#Bonferroni's Threshold (alpha=0.1, n=sample size, p=3)
+n = nrow(db.s)
+p = length(model.final$coefficients)
+(qt = qt(1 - 0.1 / (2 * n), n - p - 1))
+index.Y = c(195, 37, 334, 363)
+```
+
+So the first four cases all exceeds the Bonferroni's Threshold = 3.675773.
+They are 195th, 37th, 334th, 363rd. 
+
+## (c)
+Obtain the leverage and identify any outlying X observations. Draw residual vs.
+leverage plot.
+```{r}
+h = as.vector(influence(model.final)$hat)
+(index.X = which(h>(2*p/n)))
+length(index.X)
+plot(model.final, which = 5)
+```
+
+In terms of X observations, the leverage method has detected 24 observations as outliers.
+
+## (d)
+Draw an influence index plot using Cook's distance. Are there any influential cases
+according to this measure?
+```{r}
+plot(model.final, which = 4)
+# F-test
+res = model.final$residuals
+mse = anova(model.final)["Residuals", 3]
+cook.d = res^2*h/(p*mse*(1-h)^2)
+head(sort(cook.d, decreasing = TRUE))
+sort(pf(head(sort(cook.d, decreasing = TRUE)), p, n-p), decreasing = TRUE)
+```
+
++ Even case 195, which has the largest cook's distance and p, p = 0.1113568027 < 0.2.
++ So all the cases are not influtial cases.
+
+## (e)
+Calculate the average absolute percent difference in the fitted values with and without
+the most influential case identified from the previous question. What does this
+measure indicate the influence of this case?
+
+We examine the 195th case.
+
+```{r}
+model.final.influtial = lm(glyhb.star ~ stab.glu + ratio + age + location, data = db.s[-195, ])
+percdif = (model.final.influtial$fitted.values - model.final$fitted.values[-195])/model.final$fitted.values[-195]
+summary(percdif)
+```
+
++ So the average absolute percent difference in the fitted values with and without the most influential case identified from the previous question is 2.855e-05, which is pretty small. 
++ This indicates that the influce of this case is not big.
+
+

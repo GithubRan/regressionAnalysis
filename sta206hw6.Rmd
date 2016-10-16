@@ -1,0 +1,351 @@
+---
+title: "sta206hw6"
+author: "RanLiu"
+date: "November 13, 2015"
+output: word_document
+---
+# Partial coefficients and added-variable plots.
+
+Data description
+age (X1), 
+operating expenses (X2, in thousand dollar), 
+vacancy rate (X3), 
+total square footage (X4)
+rental rates (Y , in thousanddollar) 
+The first column is Y , followed by X1, X2, X3, X4.)
+
+## (a) 
+Perform regression of the rental rates Y on the four predictors X1, X2, X3, X4 (Model1). (Hint: To help answer the subsequent questions, the predictors should enter the model in the order X1, X2, X4, X3.)
+
+```{r}
+setwd("E:/RLiu_R/sta206")
+property = read.table('property.txt')
+names(property) = c("Y", "X1", "X2", "X3", "X4")
+model1 = lm(Y ~ X1 + X2 + X4 + X3, data = property)
+summary(model1)
+```
+## (b) 
+Based on the R output of Model 1, obtain the fitted regression coefficient of X3 and calculate the coefficient of partial determination R2 Y 3|124 and partial correlation rY 3|124. Explain what R2 Y 3|124 measures and interpret the result.
+```{r}
+# the fitted regression coefficient of X3:
+b3 = model1$coefficients["X3"]
+anova1 = anova(model1)
+m1ss = anova1$"Sum Sq"
+(R2Y3_124 = m1ss[4]/sum(m1ss[1:3]))
+(rY3_124 = sqrt(R2Y3_124)*b3/abs(b3))
+```
+R2 Y 3|124 measures the proportionate reduction in the variation in Y remaining after X1 X2 X4 is included in the model that is gained by also including X3 in the model.
+## (c) 
+Draw the added-variable plot for X3 and make comments based on this plot.
+```{r}
+x = summary(lm(X3 ~ X1 + X2 + X4, data = property))$residuals
+y = summary(lm(Y ~ X1 + X2 + X4, data = property))$residuals
+library(lattice)
+xyplot(y ~ x, type = c("p", "r"), xlab = "e(X3|X1X2X4)", ylab = "e(Y|X1X2X4)", main = "Added-variable plot for X3")
+```
+
+Added-variable plot for X3 implies that X3 is of little additional help in explaining Y when X1 X2 X4 are already in the model. This is consistent with R2 Y 3|124 = 0.3043687%.
+
+## (d) 
+Regressing the residuals e(Y |X1, X2, X4) to the residuals e(X3|X1, X2, X4). Compare the fitted regression slope from this regression with the fitted regression coefficient of X3 from part (b). What do you find?
+```{r}
+x = summary(lm(X3 ~ X1 + X2 + X4, data = property))$residuals
+y = summary(lm(Y ~ X1 + X2 + X4, data = property))$residuals
+summary(lm(y ~ x))$coefficients
+b3
+```
+THey are the same.
+## (e) 
+Obtain the regression sum of squares from part (d) and compare it with the extra sum of squares SSR(X3|X1, X2, X4) from the R output of Model 1. What do you find?
+```{r}
+anova(lm(y ~ x))
+m1ss[4]
+```
+## (f) 
+Calculate the correlation coefficient r between the two sets of residuals e(Y |X1, X2, X4) and e(X3|X1, X2, X4). Compare it with rY 3|124. What do you find? What is r2?
+```{r}
+cor(x, y)
+rY3_124
+cor(x, y)^2
+```
+## (g) 
+Regressing Y to the residuals e(X3|X1, X2, X4). Compare the fitted regression slope
+from this regression with the fitted regression coefficient of X3 from part (b). What
+do you find? Can you provide an explanation?
+```{r}
+summary(lm( property$Y ~ x))$coefficient
+b3
+```
+
+# Bias-variance trade-off. 
+
+```{r, echo = FALSE}
+#### A simulation to illustrate bias-variance trade-off in regression analysis
+
+## True regression function (mean response): f(x)=1-6*X+X^2+X^3, a cubic polynomial in x 
+## Predictor values (design points): n points equally spaced on [-3,3]
+n=30  ##sample size
+X=seq(-3,3,length.out=n) ## design points: fixed throughout the simulation 
+f.X=sin(X) + sin(2*X)  ## the values of the true regression function on the design points.
+
+par(lwd=2, cex.lab=1.5, cex.main=1.5, mar = c(2,2,2,2)) ##customize features of the graph in this R session
+plot(X, f.X, type='l',  xlab="x", ylab="f(x)", col=1,  main="true regression function") ## look at the true regression function
+
+
+## Observations: Y_i=f(x_i)+e_i, e_i ~ i.i.d. N(0, sigma.e), i=1,..., n
+sigma = c(0.5, 2, 5)
+sigma.e=sigma[1] ## error standard deviation
+rep=1000 ## number of independent data sets (replicates) to be generated 
+
+Y=matrix (0, n, rep)  ## matrix to record the observations; each column corresponds to one replicate
+
+for (k in 1:rep){
+  set.seed(1234+k*56)    ##set seed for the random number generator; for reproducibility of the result 
+  e.c=rnorm(n,0,sigma.e) ##generate the random errors
+  Y.c=f.X+e.c   ## generate observations for kth replicate: true mean response + error 
+  Y[,k]=Y.c
+}
+
+
+## plot the true regression function with the observations for several replicates
+## notice the observations are different from replicate to replicate: this is sampling variability 
+par(mfrow=c(3,3), mar = c(2,2,2,2)) ## create a plot with 3 by 3 panels
+for (k in 1:9){
+  plot(X, f.X, type='l', xlab="x", ylab="f(x)", ylim=range(Y), col=1, main=paste("rep",k)) ## true regression function; same across replicates
+  Y.c=Y[,k]  
+  points(X, Y.c)  ## observations of the kth replicate
+}
+
+par(mfrow=c(1,1))
+
+## fit polynomial regression models of order l for each replicate; 
+## consider l=1 (linear), 2 (quadratic), 3 (cubic), 5, 7,9
+## record the fitted values for each replicate
+l.order=c(1,2,3,5,7,9) ## order of the polynomial models to be fitted
+Y.fit=array(0, dim=c(n,rep,length(l.order))) ## record the fitted values; 1st index corresponds to cases; 2nd index corresponds to replicates, 3rd index corresponds to models
+
+
+for (k in 1:rep){
+  Y.c=Y[,k] ##observations of the kth replicate
+  
+  for (l in 1:length(l.order)){
+    fit.c=lm(Y.c ~ poly(X, l.order[l], raw=TRUE)) ## fit a polynomial model with order l.order[l]; raw=TRUE means raw polynomial is used; raw= FALSE mean orthogonal polynomial is used
+    Y.fit[,k,l]=fitted(fit.c)
+  } ## end of l loop
+  
+}## end of k loop
+
+
+## plot  the fitted regression curves with observations for several replicates
+## notice the fitted response curves are changing from replicate to replicate: this is due to sampling variability
+## notice the 8th  and 11th order models tend to overfit the data, while linear and qudratic models tend to underfit. 
+
+label.m=paste(l.order,"order") ## label for each model 
+par(mfrow=c(2,2)) ## create a plot with 2 by 2 panels
+for (k in 1:4){
+  plot(X, f.X, type='l', xlab="x", ylab="f(x)", lwd=2.5, ylim=range(Y[,1:4]),main=paste("rep",k)) ##true regression function (true mean response curve)
+  
+  Y.c=Y[,k]  
+  points(X, Y.c)  ## observations of the kth replicate
+  
+  for (l in 1:length(l.order)){
+    points(X, Y.fit[,k,l], type='l', col=l+1, lty=l+1, lwd=1.5) ## fitted regression function (fitted mean response curve)
+  }## end of l loop
+  
+  legend(x=-2, y=2.5,legend=c("true", label.m), col=1:(length(l.order)+1), lty=1:(length(l.order)+1), cex=0.4) ## legend for the plot
+  
+}## end of k loop
+
+par(mfrow=c(1,1))
+
+## examine model bias:  
+## compare the average (across replicates) of the fitted response  curves with the true regression function (true mean response)
+## notice the 1st order model and 2nd order model both have large biases; but the higher order models have little bias
+
+## examine model variance:
+## overlay the fitted response curves  over the true mean response curve 
+## notice that the higher order models have larger sampling variability 
+
+Y.fit.ave=apply(Y.fit, c(1,3), mean) ## average across  replicates (2nd index)
+
+par(mfrow=c(3,2))
+
+for (l in 1:length(l.order)){
+  plot(X, f.X, type='n', xlab="x", ylab="f(x)", ylim=range(Y.fit), main=paste(l.order[l],"order poly model")) ## set plot axis label/limit, title, etc.
+  
+  for (k in 1:rep){
+    points(X, Y.fit[,k,l], type='l', lwd=1, col=grey(0.6)) ## fitted response curves of lth model: grey
+  }## end of k loop
+  
+  points(X, f.X, type='l',  col=1) ## true mean response: solid black
+  points(X, Y.fit.ave[,l], type='l', col=2, lty=2) ## averaged (across replicates) fitted mean reponse of the lth model: broken red
+  
+  legend(x=-0.5,y=40, legend=c("true", "ave.fit"), col=c(1,2), lty=c(1,2)) ## legend of the plot
+  
+}##end l loop
+par(mfrow=c(1,1))
+
+## compare SSE; variance, bias^2 and mean-squared-estimation-error = variance+bias^2 across models
+SSE=matrix(0, rep, length(l.order)) ## record SSE for each model on each replicate
+resi=array(0, dim=c(n,rep, length(l.order))) ## record residuals : residual := obs-fitted
+error.fit=array(0, dim=c(n,rep, length(l.order))) ## record estimation errors in the fitted values: error := fitted value - true mean response
+
+for (l in 1:length(l.order)){
+  temp=Y-Y.fit[,,l]
+  resi[,,l]=temp ## residuals
+  SSE[,l]=apply(temp^2,2, sum) ## SSE=sum of squared residuals across cases
+  error.fit[,,l]=Y.fit[,,l]-matrix(f.X, n, rep, byrow=FALSE) ## estimation error = fitted value - true mean response
+}
+
+### in a simulation study, taking average across replicates (i.e., taking empirical mean) is the counterpart of taking mean/expectation of a random variable
+### the larger the number of replicates, the closer the empirical mean would be to the actual mean.
+SSE.mean=apply(SSE,2,mean) ## mean SSE (averaged over the replicates); this is the empirical version of E(SSE)
+bias=apply(error.fit, c(1,3), mean)  ## bias= mean (averaged across replicates) errors in the fitted values
+variance=apply(Y.fit, c(1,3), var) ## variance (across replicates) of the fitted values
+err2.mean=apply(error.fit^2,c(1,3), mean) ## mean-squared-estimation errors: squared estimation errors of the fitted values averaged across replicates
+apply(err2.mean, 2, mean)
+
+### compare SSE.mean with (n-l.order-1)*sigma.e^2; What do you find?  
+### note: l.order+1 is the number of regression coefficients p in the lth moder
+### for a correct model (models with all important X variables included), E(SSE)=(n-p)*sigma^2
+### does this hold for an underfit model (models with some important X variables omitted)?
+cbind(SSE.mean, (n-l.order-1)*sigma.e^2)
+
+
+
+
+### bias, variance, err2.mean are calculated on each design point/case for each model
+### to facilitate comparison among models, we sum them across the design points/cases to produce an overall quantity (each) for each model
+bias2.ave=apply(bias^2, 2, mean) ## average bias^2 across design points  for each model: overall in-sample bias
+variance.ave=apply(variance, 2,mean) ## average variance across design points for each model: overall in-sample variance
+err2.mean.ave=apply(err2.mean,2, mean) ## average mean-squared-estimation-error across design points for each model: over-all in-sample msee
+
+### compare variance.ave*n/sigma.e^2 with l.order+1. What do you observe? Can you explain it? 
+cbind(variance.ave*n/sigma.e^2, l.order+1)
+
+### plot E(SSE), E(MSE), bias^2, variance, mean-squared-estimation-error against the model order to examine bias-variance trade-off
+par(mfrow=c(3,2))
+plot(l.order, SSE.mean, type='o',xlab="order of model", ylab="E(SSE)", main="E(SSE)")  
+points(l.order, sigma.e^2*(n-l.order-1), type='l', lty=2,col=2)
+
+
+plot(l.order, SSE.mean/(n-l.order-1), type='o',xlab="order of model", ylab="E(MSE)", main="E(MSE)") 
+abline(h= sigma.e^2, lty=2,col=2)
+plot(l.order, bias2.ave, type='o',xlab="order of model", ylab="bias^2", main="squared model bias")
+
+plot(l.order, variance.ave, type='o',xlab="order of model", ylab="variance", main="model variance") 
+points(l.order, (l.order+1)*sigma.e^2/n, type='l', lty=2,col=2)
+
+plot(l.order, err2.mean.ave, type='o',xlab="order of model", ylab="mean-squared-estimation-error", main="mean-squared-estimation-error")
+
+par(mfrow=c(1,1))
+```
+
+# Exploratory data analysis and preliminary investigation
+
+## (a) 
+Draw the scatterplot matrix of this data. Do you observe something unusual?
+```{r}
+cars = read.csv('Cars.csv', header=TRUE)
+plot(cars)
+```
+
+there exists multicollinearity between X variables.
+
+## (b) 
+Check the variable type for each variable. Do you observe something unusual? Which
+variables do you think should be treated as quantitative and which ones should be
+treated as qualitative/categorical?
+```{r}
+sapply(cars, class)
+```
+Horsepower should be quantitative.COuntry code should be qualitative.The rest are correct.
+
+## (c) 
+Fix the problems that you have identified (if any) before proceeding to the next
+question. (Hint: Check out Lab5 handout)
+```{r}
+cars$horsepower = as.numeric(as.character(cars$horsepower))
+cars$country.code = as.factor(cars$country.code)
+```
+
+## (d) 
+Draw histogram for each quantitative variable. Do you think any transformation is
+needed ? If so, make the transformation before proceeding to the next question.
+```{r}
+par(new = TRUE, mfcol = c(2, 4), mar = c(3,2,2,1))
+invisible(sapply(c(1:7), function(x){
+  hist(cars[,x], main = colnames(cars)[x])
+}))
+ct = function(x){
+  x = (1/sqrt(length(x) - 1))*(x - mean(x, na.rm = TRUE))/sd(x, na.rm = TRUE)
+  return(x)
+}
+cars_ct = as.data.frame(apply(cars[1:7], 2, ct))
+cars_ct$country.code = cars$country.code
+```
+
+## (e) 
+Draw the scatter plot matrix among quantitative variables (possibly transformed).
+Do you observe any nonlinear relationship with the response variable? If so, what
+should you do?
+```{r}
+par(new = TRUE, mfrow = c(1,1))
+plot(cars_ct[,1:7])
+```
+
+## (f) 
+Draw pie chart for each categorical variable. Draw side-by-side box plots for the
+response variable with respect to each categorical variable. What do you observe?
+```{r}
+pie(table(cars$country.code), main = "country.code")
+par(mar = c(5,5,5,5))
+boxplot(cars$mpg ~ cars$country.code, main = "mpg of different country.code", xlab = "country.code", ylab = "mpg", col = rainbow(3))
+```
+
+## (g) 
+Decide on a model for further investigation. Fit this model and draw residual plots.
+Does the model seem to be adequate? If not, try to make adjustments and fit an
+updated model. Repeat this process until you think you have found an adequate
+model. What would be your next step then?
+
+```{r}
+model1 = lm(mpg ~ ., data = cars_ct)
+summary(model1)
+anova(model1)
+par(mar = c(5,5,5,5))
+plot(model1, which = 1, pch = "*", col = "lightblue")
+```
+
+There exists a nonlinear pattern between residuals and fitted values. THerefore, we need to update the model to 2-order model called model2. 
+
+Besides, acceleration does not have significant influence on mpg, so we will also discard it in model2.
+
+Try regress mpg on 2-order full model.
+
+```{r}
+paste(names(cars), sep = " + ")
+
+model2 = lm(mpg ~ cylinders + displacement + horsepower + weight + year.of.make + country.code + I(weight^2), data = cars_ct)
+anova(model2)
+plot(model2, which = 1, pch = "*", col = "lightblue")
+
+```
+
+Now the model is adequate.
+A possible next step would be Model diagnostic and validation.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

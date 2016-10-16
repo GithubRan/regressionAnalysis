@@ -1,0 +1,231 @@
+---
+title: "sta206hw5"
+author: "RanLiu"
+date: "November 7, 2015"
+output: pdf_document
+---
+# Standarlized Regression model
+## set up workspace
+```{r}
+setwd("E:/RLiu_R/sta206")
+property = read.table("property.txt")
+colnames(property) = c("rentalRate", "age", "operating", "vacancy", "sqfootage")
+```
+## (a).histogram,boxplot and summary for each variable
+```{r}
+par(new = TRUE, mfcol = c(2, 5), mar = c(3,2,2,1))
+invisible(sapply(c(1:5), function(x){
+  hist(property[,x], main = colnames(property)[x])
+  boxplot(property[,x], main = colnames(property)[x])
+}))
+summary(property)
+```
+Comment: 
+RetalRate looks like normal distribution. 
+Age seems to clustered into two groups.
+Operating is kind of left skewed.
+Vacancy is quite a lot observations in the first bin value and is right skewed.
+Sqfootage is kind of right skewed.
+
+Scale:
+RentalRate, age and operating are in the same scale while vacancy varies within a ten times smaller scale and sqfootage varies within a e^5 times smaller scale.
+
+## (b).sample mean and sample sd
+```{r}
+apply(property, 2, mean)
+apply(property, 2, sd)
+ct = function(x){
+  x = (1/sqrt(length(x) - 1))*(x - mean(x))/sd(x)
+  return(x)
+}
+property_ct = apply(property, 2, ct)
+apply(property_ct, 2, mean)
+apply(property_ct, 2, sd)
+```
+After correlation transformation, the means are nearly zero and sd are all the same, which is 1/sqrt(81-1) = 0.1118034.
+
+## (c).fitted regression coefficients
+Standard first-order regression model:
+Ynewi = β1*X1inew + β2*X2inew + β3*X3inew + β4*X4inew + ei. i = 1,2,...,81.
+Fit this model:
+```{r}
+property_ct = as.data.frame(property_ct)
+sdmodel = lm(rentalRate ~ age + operating + vacancy + sqfootage, data = property_ct)
+(sdbeta = sdmodel$coefficients)
+```
+Fitted regression intercept is nearly zero: -4.652117e-17
+Transform the coeffcients back to original model:
+```{r}
+#transform back
+sdxy = apply(property, 2, sd)
+meanxy = apply(property, 2, mean)
+orbeta = rep(0,5)
+orbeta[2:5] = sdbeta[2:5]/sdxy[2:5]*sdxy[1]
+orbeta[1] = meanxy[1] - sum(orbeta[2:5]*meanxy[2:5])
+#true original model
+ormodel = lm(rentalRate ~ age + operating + vacancy + sqfootage, data = property)
+#compare
+ormodel$coefficients
+orbeta
+```
+Transformed back fitted regression coefficients are the same as original model.
+
+## (d).standard error of fitted regression coefficients
+```{r}
+sdse = summary(sdmodel)$coefficients[,2]
+orse = sdse*sqrt(nrow(property) - 1)*sdxy[1] 
+#compare
+summary(ormodel)$coefficients[,2]
+orse
+```
+Transformed back standard error of fitted regression coefficients are the same as original model.
+
+## (e).SSTO SSE SSR
+```{r}
+#standardized model
+ssto = sum(anova(sdmodel)[,2])
+sse = anova(sdmodel)[5,2]
+ssr = sum(anova(sdmodel)[1:4,2])
+sdss = data.frame(ssto = ssto, sse = sse, ssr = ssr, row.names = 'standardized')
+#original model
+ssto = sum(anova(ormodel)[,2])
+sse = anova(ormodel)[5,2]
+ssr = sum(anova(ormodel)[1:4,2])
+orss = data.frame(ssto = ssto, sse = sse, ssr = ssr, row.names = 'original')
+#compare
+rbind(sdss, orss)
+```
+In the standardized model, all sum of squares is the ratio of the corresponding sum of square in the original model to the original SSTO.
+
+## (f). Multiple R-squared & Adjusted R-squared
+```{r}
+summary(ormodel)
+summary(sdmodel)
+```
+Both models have same Multiple R-squared = 0.5847, same	Adjusted R-squared = 0.5629 
+
+# Multicollinearity
+
+## (a).correlation matrices for standardized model
+```{r}
+(rxx = cor(property_ct))[2:5, 2:5]
+(txx = as.matrix(t(property_ct[,2:5])) %*% as.matrix(property_ct[,2:5]))
+(rxy = cor(property_ct)[1, 2:5])
+(txy = as.matrix(t(property_ct[,2:5])) %*% as.matrix(property_ct[,1]))
+```
+So X'X = rxx, X'Y = rxy.
+
+## (b).VIF
+```{r}
+sdx = read.table("property.txt")[2:5]
+colnames(sdx) = c("x1", "x2", "x3", "x4")
+sdx = as.matrix(sdx)
+rxx_inv = solve(t(sdx) %*% sdx)
+diag(rxx_inv)
+sdx = as.data.frame(sdx)
+mcmodel1 = lm(x1 ~ x2 + x3 + x4, data = sdx)
+mcmodel2 = lm(x2 ~ x1 + x3 + x4, data = sdx)
+mcmodel3 = lm(x3 ~ x1 + x2 + x4, data = sdx)
+mcmodel4 = lm(x4 ~ x2 + x3 + x1, data = sdx)
+rs1 = summary(mcmodel1)$r.squared
+rs2 = summary(mcmodel2)$r.squared
+rs3 = summary(mcmodel3)$r.squared
+rs4 = summary(mcmodel4)$r.squared
+```
+The largest VIF is rs2 = 0.19377. So there is no severe multicollinearity in this data.
+
+## (c).
+```{r}
+names(property_ct) = c("y", "x1", "x2", "x3", "x4")
+yx4model = lm(y ~ x4, data = property_ct)
+yx4model$coefficients[2]
+yx34model = lm(y ~ x3 + x4, data = property_ct)
+yx34model$coefficients[3]
+```
+We can see that coefficients of x4 in the two models are nearly the same.
+```{r}
+anova(yx4model)
+anova(yx34model)
+```
+ssr(x4) = 67.775, ssr(x4|x3) = 66.858. They are nearly the same. The reason is that the correlation coefficient of x3 x4 is only 0.08061073, seen from rxx.
+
+## (d).
+```{r}
+y = property_ct[, 1]
+yx2model = lm(y ~ x2, data = property_ct)
+yx2model$coefficients[2]
+yx24model = lm(y ~ x4 + x2, data = property_ct)
+yx24model$coefficients[3]
+```
+The estimated regression coefficient of x2 in the model with both x2
+and x4 is about half of that in the model with only x2.
+```{r}
+anova(yx2model)
+anova(yx24model)
+```
+ssr(x2) = 40.503, ssr(x2|x4) = 9.291. When x4 is already in the model, the marginal contribution of x2 is small. The reason is that the correlation coefficient of x2 x4 is 0.44069713, seen from rxx. Besides, they are both correlated to Y.
+
+# Polynomial Regression
+## (a).
+```{r}
+par(new = TRUE, mfrow = c(1,1))
+plot(property[,2], property[,1])
+```
+There is no obvious linear relationship between y and x1.
+
+## (b).
+The model is:
+
+colnames(property) = c("rentalRate", "age", "operating", "vacancy", "sqfootage")
+
+```{r}
+property_p = read.table("property.txt")
+names(property_p) = c("y", "x1", "x2", "x3", "x4")
+property_p[, 2] = property[, 2] - mean(property[, 2])
+pmodel = lm(y ~ x1 + x2 + x4 + I(x1^2), data = property_p)
+summary(pmodel)
+```
+Fitted regression function:
+
+
+
+
+
+
+
+```{r}
+plot(property_p$y, pmodel$fitted.values)
+```
+The model provides basically good fit.
+
+## (c).
+```{r}
+summary(pmodel)
+```
+Reference of HW4:R2 = 0.583; Ra2 = 0.5667.
+This model is better than the HW4 one in terms of R squares.
+
+## (d).
+H0: beta4 = 0; Ha: beta4 != 0
+```{r}
+summary(pmodel)
+qt(0.975, 76)
+```
+test statistics: T* = beta4(hat)/se(beta4(hat)) = 2.431 > qt(0.975, 76)
+Under H0, T* ~ t(76)
+Reject H0 and conclude that the quadratic term of centered age should be included in the model.
+
+## (e).
+```{r}
+newx = data.frame(x1 = 4 - mean(property_p$x1), x2 = 10, x4 = 80000)
+predict(pmodel, newx, interval = "prediction", level = 0.99, se.fit = TRUE)
+```
+Refernce to HW4: [12.83659, 17.40311]
+
+
+
+
+
+
+
+
